@@ -23,3 +23,5 @@ garage door is closed.
 
 The two wires to the garage door button are attached to the same screws on the garage door
 motor that the button next to the door into the house is attached.
+
+08/22/2021 v1.1.0 Added /GDC_Simple site for old browsers like the Safari on my wife's iphone4.
