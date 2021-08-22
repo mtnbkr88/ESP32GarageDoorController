@@ -7,6 +7,9 @@
  * GPIO2 should be connected to the garage door relay pin IN2.
  * GPIO14 should be connected to the garage door relay pin IN1.
  * GPIO13 should be connected to the garage door reed sensor.
+ * 
+ * 08/22/2021 v1.1.0 Added /GDC_Simple site for old browsers 
+ *                   like the Safari on my wife's iphone4.
  **********************************************************************************/
 
 /**********************************************************************************
@@ -36,15 +39,15 @@ const char* TZ_INFO = "PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00";
 const int SERVER_PORT = 80;  // port the main web server will listen on
 
 const char* appName = "ESP32GarageDoorController";
-const char* appVersion = "1.0.0";
-const char* firmwareUpdatePassword = "87654321";
+const char* appVersion = "1.1.0";
+const char* firmwareUpdatePassword = "12345678";
 
 // edit email server info 
 const char* emailhost = "smtp.gmail.com";
 const int emailport = 465;
 const char* emailsendaddr = "YourEmail\@gmail.com";
 const char* emailsendpwd = "YourEmailPwd";
-char email[40] = "YourNotificationEmail\@hotmail.com";  // this is notification emails go
+char email[40] = "YourNotificationEmail\@hotmail.com";  // this can be changed through Settings in the app
 
 // should not need to edit the below
 
@@ -747,6 +750,144 @@ static esp_err_t GDC_main_handler(httpd_req_t *req) {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // 
+void do_toggle() {
+
+  char msg[30];
+  getLocalTime(&timeinfo);
+  strftime(msg, sizeof msg, "%b %d %Y %I:%M %p", &timeinfo);
+  strcpy(GDDate, msg);
+  if (!strcmp(GDStatus, "Closed")) {  // toggle to Open
+    strcpy(GDStatus, "Opening");
+  } 
+  if (!strcmp(GDStatus, "Open")) {  // toggle to Closed
+    strcpy(GDStatus, "Closing");
+  } 
+
+  do_GDC_simple();
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+void do_GDC_simple() {
+
+  Serial.println("do_GDC_simple ");
+
+  const char msg[] PROGMEM = R"rawliteral(<!doctype html>
+<html>
+<head>
+<meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
+<meta http-equiv="refresh" content="20; url=/GDC_Simple">
+<title>Garage Door Controller</title>
+<script>
+
+  // garage door button pressed
+  function do_toggle() {
+    window.location.href = "/GDC_Simple?action=toggle";
+  }
+
+  // force reload when going back to page
+  if (!!window.performance && window.performance.navigation.type == 2) {
+    window.location.reload();
+  }
+  
+  // size the page to fit nicely on my cell phone
+  function zoom() {
+    document.body.style.zoom = '250%%';
+  }
+</script>
+</head>
+<body onload="zoom();">
+<center>
+)rawliteral";
+
+  sprintf(the_page, msg);
+
+  // continue building simple display
+  strcat(the_page, "<br><table><tr><td align='center'>");
+
+  char msg2[100];
+  if ( !strcmp( GDStatus, "Opening" ) ) {
+    strcat(the_page, OpeningPng);
+    sprintf(msg2, "</td></tr><tr><td>Opening as of %s</td></tr>", GDDate);
+    strcat(the_page, msg2);
+    strcat(the_page, "</table><form><br><table><tr><td>&nbsp;</td></tr></table></form>");
+  } else if ( !strcmp( GDStatus, "Open" ) ) {
+    strcat(the_page, OpenPng);
+    sprintf(msg2, "</td></tr><tr><td>Opened as of %s</td></tr>", GDDate);
+    strcat(the_page, msg2);
+    strcat(the_page, "</table><form><br><table><tr><td><input type='button' id='Closing' value='CLOSE DOOR' onclick='do_toggle();' /></td></tr></table></form>");
+  } else if ( !strcmp( GDStatus, "Closing" ) ) {
+    strcat(the_page, ClosingPng);
+    sprintf(msg2, "</td></tr><tr><td>Closing as of %s</td></tr>", GDDate);
+    strcat(the_page, msg2);
+    strcat(the_page, "</table><form><br><table><tr><td>&nbsp;</td></tr></table></form>");
+  } else {
+    strcat(the_page, ClosedPng);
+    sprintf(msg2, "</td></tr><tr><td>Closed as of %s</td></tr>", GDDate);
+    strcat(the_page, msg2);
+    strcat(the_page, "</table><form><br><table><tr><td><input type='button' id='Opening' value='OPEN DOOR' onclick='do_toggle();' /></td></tr></table></form>");
+  }
+
+  strcat(the_page, "<br><table><tr><td align='center'>Recent History</td></tr>");
+
+  // add last 10 history events
+  for ( int i = 0; i < 10; i++ ) {
+    strcat(the_page, GDHistory[i]);
+  }
+  strcat(the_page, "</table>");
+
+  strcat(the_page, "</center></body></html>");
+
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+static esp_err_t GDC_simple_handler(httpd_req_t *req) {
+
+  //Serial.print(F("in GDC_simple_handler, Heap is: ")); Serial.println(ESP.getFreeHeap());
+
+
+  char buf[500];
+  size_t buf_len;
+  char param[60];
+  char action[20];
+  
+  // default action, show GDC simple page
+  strcpy(action, "show");
+
+  // query parameters - get action
+  buf_len = httpd_req_get_url_query_len(req) + 1;
+  if (buf_len > 1) {
+    if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+      if (httpd_query_key_value(buf, "action", param, sizeof(param)) == ESP_OK) {
+        strcpy(action, param);
+      }
+    }
+  }
+
+  //Serial.print(F("GDC_simple_hander with action: ")); Serial.println( action );
+
+  if ( !strcmp( action, "toggle" ) ) {  // GDC button pushed
+    do_toggle();
+    httpd_resp_send(req, the_page, strlen(the_page));
+        
+  } else {
+    // display GDC simple page
+    do_GDC_simple();
+    httpd_resp_send(req, the_page, strlen(the_page));
+  }
+  
+  return ESP_OK;
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
 
 static esp_err_t updatefirmware_get_handler(httpd_req_t *req) {
 
@@ -938,6 +1079,13 @@ void startWebServer() {
     .user_ctx  = NULL
   };
 
+  httpd_uri_t GDC_simple_uri = {
+    .uri       = "/GDC_Simple",
+    .method    = HTTP_GET,
+    .handler   = GDC_simple_handler,
+    .user_ctx  = NULL
+  };
+
   httpd_uri_t updatefirmware_get_uri = {
     .uri       = "/updatefirmware",
     .method    = HTTP_GET,
@@ -954,6 +1102,7 @@ void startWebServer() {
 
   if (httpd_start(&webserver_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(webserver_httpd, &GDC_main_uri);
+    httpd_register_uri_handler(webserver_httpd, &GDC_simple_uri);
     httpd_register_uri_handler(webserver_httpd, &updatefirmware_get_uri);
     httpd_register_uri_handler(webserver_httpd, &updatefirmware_post_uri);
   }
