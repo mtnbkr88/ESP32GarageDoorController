@@ -778,9 +778,14 @@ void do_GDC_simple() {
 <html>
 <head>
 <meta http-equiv='Content-Type' content='text/html; charset=utf-8'/>
-<meta http-equiv="refresh" content="20; url=/GDC_Simple">
 <title>Garage Door Controller</title>
 <script>
+  // refresh screen every 20 seconds
+  function ready() {
+    setInterval(function(){
+      window.location.href = "/GDC_Simple";
+      }, 20000);
+  }
 
   // garage door button pressed
   function do_toggle() {
@@ -798,7 +803,7 @@ void do_GDC_simple() {
   }
 </script>
 </head>
-<body onload="zoom();">
+<body onload="zoom(); ready();">
 <center>
 )rawliteral";
 
